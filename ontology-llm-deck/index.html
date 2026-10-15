@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ontology + LLM</title>
+  <style>
+    :root {
+      --space: 8px;
+      --bg: #071426;
+      --raised: #10243f;
+      --line: #2a466c;
+      --text: #e8eef7;
+      --muted: #9aafc8;
+      --accent: #e4a34b;
+      --accent-ink: #1c1408;
+      --size-title: clamp(1.85rem, 3.6vw, 3.25rem);
+      --size-lead: clamp(1.15rem, 1.8vw, 1.5rem);
+      --size-body: 1.0625rem;
+      --size-meta: 0.8125rem;
+      --weight-title: 500;
+      --weight-body: 400;
+      --font: "Avenir Next", "Avenir", "Segoe UI", sans-serif;
+      --mono: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: var(--size-body);
+      font-weight: var(--weight-body);
+      line-height: 1.45;
+    }
+
+    .app {
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .chrome,
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: calc(var(--space) * 2);
+      padding: calc(var(--space) * 2) calc(var(--space) * 3);
+    }
+
+    .chrome p,
+    .count {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--size-meta);
+      letter-spacing: 0.04em;
+    }
+
+    .mark {
+      color: var(--text);
+      font-weight: var(--weight-title);
+    }
+
+    .stage {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      padding: 0 calc(var(--space) * 3) calc(var(--space) * 2);
+    }
+
+    .backdrop {
+      position: absolute;
+      inset: 0 calc(var(--space) * 3) calc(var(--space) * 2);
+      width: calc(100% - 48px);
+      height: calc(100% - 16px);
+      pointer-events: none;
+    }
+
+    .slide {
+      position: relative;
+      height: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: calc(var(--space) * 3);
+      padding: calc(var(--space) * 3);
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #0c1d36 0%, #081528 100%);
+      overflow: auto;
+    }
+
+    .slide[hidden] { display: none; }
+
+    .kicker {
+      margin: 0 0 calc(var(--space) * 1);
+      color: var(--accent);
+      font-size: var(--size-meta);
+      font-weight: var(--weight-title);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2 {
+      margin: 0;
+      font-weight: var(--weight-title);
+      letter-spacing: -0.02em;
+      line-height: 1.12;
+      max-width: 22ch;
+    }
+
+    h1 { font-size: var(--size-title); }
+    h2 { font-size: var(--size-lead); }
+
+    .lede {
+      margin: calc(var(--space) * 2) 0 0;
+      max-width: 38ch;
+      color: var(--muted);
+      font-size: var(--size-lead);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: calc(var(--space) * 4);
+      align-items: center;
+      min-height: 0;
+    }
+
+    .split.even { grid-template-columns: 1fr 1fr; }
+
+    ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: calc(var(--space) * 1.5);
+    }
+
+    li {
+      padding-left: calc(var(--space) * 2);
+      border-left: 2px solid var(--accent);
+    }
+
+    .figure {
+      margin: 0;
+      min-width: 0;
+    }
+
+    .figure svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    figcaption {
+      margin-top: calc(var(--space) * 1);
+      color: var(--muted);
+      font-size: var(--size-meta);
+    }
+
+    .pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: calc(var(--space) * 2);
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--raised);
+      border: 1px solid var(--line);
+      padding: calc(var(--space) * 2);
+      min-width: 0;
+    }
+
+    .panel h2 { max-width: none; }
+
+    .panel p,
+    .answer {
+      margin: calc(var(--space) * 1.5) 0 0;
+    }
+
+    .query {
+      margin: 0;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: var(--size-meta);
+      line-height: 1.4;
+    }
+
+    .answer {
+      font-size: var(--size-body);
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: var(--size-meta);
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .nav { border-top: 1px solid var(--line); }
+
+    button {
+      font-family: inherit;
+      font-size: var(--size-body);
+      font-weight: var(--weight-title);
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+
+    .next {
+      background: var(--accent);
+      color: var(--accent-ink);
+      padding: calc(var(--space) * 1.25) calc(var(--space) * 3);
+    }
+
+    .next:hover { filter: brightness(1.06); }
+
+    .back {
+      background: transparent;
+      color: var(--muted);
+      border-color: var(--line);
+      padding: calc(var(--space) * 1.25) calc(var(--space) * 2);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    h1:focus, h2:focus { outline: none; }
+
+    @media (max-width: 800px) {
+      .chrome, .nav, .stage { padding-left: calc(var(--space) * 2); padding-right: calc(var(--space) * 2); }
+      .backdrop { display: none; }
+      .split, .split.even, .pair { grid-template-columns: 1fr; gap: calc(var(--space) * 2); }
+      .slide { padding: calc(var(--space) * 2); }
+      h1, h2 { max-width: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="chrome">
+      <p><span class="mark">Ontology + LLM</span></p>
+      <p>Chung Chi Hung, Leo · 01/2024</p>
+    </header>
+
+    <div class="stage">
+      <svg class="backdrop" viewBox="0 0 1200 700" aria-hidden="true">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 Z" fill="#e4a34b"/>
+          </marker>
+        </defs>
+        <g fill="none" stroke="#1c3558" stroke-width="1">
+          <path d="M40 80 H200 L260 150 H420"/>
+          <path d="M980 60 H1100 V180 H980"/>
+          <path d="M80 560 H240 L300 640"/>
+          <circle cx="200" cy="80" r="4"/>
+          <circle cx="420" cy="150" r="4"/>
+          <circle cx="980" cy="60" r="4"/>
+          <circle cx="1100" cy="180" r="4"/>
+          <circle cx="300" cy="640" r="4"/>
+        </g>
+      </svg>
+
+      <section class="slide" aria-labelledby="s1">
+        <div>
+          <p class="kicker">Short version</p>
+          <h1 id="s1" tabindex="-1">Ontology + LLM</h1>
+          <p class="lede">A chatbot that reads a Brick model and answers in plain language.</p>
+        </div>
+        <figure class="figure">
+          <svg viewBox="0 0 880 280" role="img" aria-label="Question and a Brick graph both connect to an LLM, which returns an answer.">
+            <g fill="none" stroke="#9aafc8" stroke-width="1.5">
+              <path d="M70 70 H250 V150 H150 L120 190 V150 H70 Z"/>
+              <path d="M70 70 H250 V150 H150 L120 190 V150 H70 Z" transform="translate(0,0)"/>
+              <path d="M620 78 H860 V168 H760 L724 210 V168 H620 Z"/>
+            </g>
+            <text x="160" y="118" fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="18" text-anchor="middle">Question</text>
+            <text x="740" y="132" fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="18" text-anchor="middle">Answer</text>
+            <circle cx="440" cy="140" r="54" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+            <text x="440" y="146" fill="#e4a34b" font-family="Avenir Next, Segoe UI, sans-serif" font-size="20" font-weight="500" text-anchor="middle">LLM</text>
+            <path d="M250 110 H386" stroke="#e4a34b" stroke-width="1.5" marker-end="url(#arrow)"/>
+            <path d="M494 140 H620" stroke="#e4a34b" stroke-width="1.5" marker-end="url(#arrow)"/>
+            <g fill="#e4a34b">
+              <circle cx="118" cy="28" r="7"/>
+              <circle cx="164" cy="12" r="5"/>
+              <circle cx="86" cy="10" r="4"/>
+            </g>
+            <g stroke="#e4a34b" stroke-width="1.5">
+              <path d="M118 28 L164 12"/>
+              <path d="M118 28 L86 10"/>
+            </g>
+            <text x="178" y="32" fill="#9aafc8" font-family="Avenir Next, Segoe UI, sans-serif" font-size="13">Brick</text>
+          </svg>
+        </figure>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s2">
+        <div>
+          <p class="kicker">01 — Objective</p>
+          <h2 id="s2" tabindex="-1">A dialog with the model and the ontology</h2>
+        </div>
+        <div class="split">
+          <ul>
+            <li>Chat with an LLM that knows the Brick model.</li>
+            <li>Upload your own Brick ontology.</li>
+            <li>Ask questions in natural language.</li>
+            <li>Read the query result back as prose.</li>
+          </ul>
+          <figure class="figure">
+            <svg viewBox="0 0 560 320" role="img" aria-label="Questions and answers pass through the LLM, which reads a Brick ontology and a timeseries database.">
+              <path d="M24 36 H168 V96 H108 L78 128 V96 H24 Z" fill="#10243f" stroke="#9aafc8"/>
+              <text x="96" y="74" fill="#e8eef7" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Question</text>
+              <path d="M24 176 H168 V236 H108 L78 268 V236 H24 Z" fill="#10243f" stroke="#9aafc8"/>
+              <text x="96" y="214" fill="#e8eef7" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Answer</text>
+              <circle cx="286" cy="160" r="48" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+              <text x="286" y="166" fill="#e4a34b" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">LLM</text>
+              <path d="M168 80 H210 L238 140" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+              <path d="M246 188 L210 230 H168" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+              <g stroke="#e4a34b" fill="#e4a34b">
+                <circle cx="470" cy="78" r="10"/>
+                <circle cx="508" cy="112" r="8"/>
+                <circle cx="444" cy="118" r="8"/>
+                <path d="M470 78 L508 112 M470 78 L444 118" fill="none"/>
+              </g>
+              <text x="476" y="148" fill="#e8eef7" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Brick ontology</text>
+              <g fill="none" stroke="#9aafc8">
+                <ellipse cx="476" cy="230" rx="46" ry="14"/>
+                <path d="M430 230 V262 C430 276 522 276 522 262 V230"/>
+                <ellipse cx="476" cy="262" rx="46" ry="14"/>
+              </g>
+              <text x="476" y="292" fill="#e8eef7" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Timeseries</text>
+              <path d="M334 140 H430" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+              <path d="M430 200 H334" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s3">
+        <div>
+          <p class="kicker">02 — Framework</p>
+          <h2 id="s3" tabindex="-1">GPT-4 alone was not enough</h2>
+        </div>
+        <figure class="figure">
+          <svg viewBox="0 0 980 300" role="img" aria-label="Eight steps from preprocessing the Brick model to testing and future work.">
+            <path d="M90 78 H890" fill="none" stroke="#2a466c" stroke-width="2"/>
+            <path d="M90 210 H890" fill="none" stroke="#2a466c" stroke-width="2"/>
+            <g font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">
+              <g>
+                <circle cx="90" cy="78" r="18" fill="#e4a34b"/>
+                <text x="90" y="84" fill="#1c1408" font-size="15" font-weight="500">1</text>
+                <text x="90" y="118" fill="#e8eef7" font-size="15">Preprocess Brick</text>
+              </g>
+              <g>
+                <circle cx="350" cy="78" r="18" fill="#e4a34b"/>
+                <text x="350" y="84" fill="#1c1408" font-size="15">2</text>
+                <text x="350" y="118" fill="#e8eef7" font-size="15">LlamaIndex</text>
+              </g>
+              <g>
+                <circle cx="620" cy="78" r="18" fill="#e4a34b"/>
+                <text x="620" y="84" fill="#1c1408" font-size="15">3</text>
+                <text x="620" y="118" fill="#e8eef7" font-size="15">Open-source LLM</text>
+              </g>
+              <g>
+                <circle cx="890" cy="78" r="18" fill="#e4a34b"/>
+                <text x="890" y="84" fill="#1c1408" font-size="15">4</text>
+                <text x="890" y="118" fill="#e8eef7" font-size="15">Import data</text>
+              </g>
+              <g>
+                <circle cx="90" cy="210" r="18" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+                <text x="90" y="216" fill="#e4a34b" font-size="15">5</text>
+                <text x="90" y="250" fill="#e8eef7" font-size="15">Graph database</text>
+              </g>
+              <g>
+                <circle cx="350" cy="210" r="18" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+                <text x="350" y="216" fill="#e4a34b" font-size="15">6</text>
+                <text x="350" y="250" fill="#e8eef7" font-size="15">Query engine</text>
+              </g>
+              <g>
+                <circle cx="620" cy="210" r="18" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+                <text x="620" y="216" fill="#e4a34b" font-size="15">7</text>
+                <text x="620" y="250" fill="#e8eef7" font-size="15">Test questions</text>
+              </g>
+              <g>
+                <circle cx="890" cy="210" r="18" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+                <text x="890" y="216" fill="#e4a34b" font-size="15">8</text>
+                <text x="890" y="250" fill="#e8eef7" font-size="15">Limits and hopes</text>
+              </g>
+            </g>
+          </svg>
+          <figcaption>A designed pipeline, not a single prompt to GPT-4.</figcaption>
+        </figure>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s4">
+        <div>
+          <p class="kicker">03 — Preprocess</p>
+          <h2 id="s4" tabindex="-1">Turn the Brick file into paragraphs</h2>
+        </div>
+        <div class="split even">
+          <div>
+            <ul>
+              <li>Models know prose. They do not know RDF.</li>
+              <li>Rewrite each triple as a sentence the model can read.</li>
+            </ul>
+            <p class="mono" style="margin-top:16px;color:#9aafc8">TLVL-RF-ACC-01.AUTO is a Manual_Auto_Status. It has a Sensor tag. It is a point of TLVL-RF-ACC-01.</p>
+          </div>
+          <figure class="figure">
+            <svg viewBox="0 0 520 280" role="img" aria-label="Point AUTO links to equipment ACC-01, with type Manual Auto Status and tag Sensor.">
+              <g fill="none" stroke="#e4a34b" stroke-width="1.5">
+                <rect x="150" y="96" width="220" height="56" fill="#10243f"/>
+                <rect x="20" y="30" width="150" height="44" fill="#10243f"/>
+                <rect x="350" y="30" width="150" height="44" fill="#10243f"/>
+                <rect x="176" y="200" width="168" height="44" fill="#10243f"/>
+                <path d="M170 74 V96 M350 74 V96 M260 152 V200" marker-end="url(#arrow)"/>
+              </g>
+              <g fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="13" text-anchor="middle">
+                <text x="260" y="128">TLVL-RF-ACC-01.AUTO</text>
+                <text x="95" y="57">Manual_Auto_Status</text>
+                <text x="425" y="57">tag: Sensor</text>
+                <text x="260" y="226">point of ACC-01</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s5">
+        <div>
+          <p class="kicker">04 — LlamaIndex</p>
+          <h2 id="s5" tabindex="-1">The interface between people and data</h2>
+        </div>
+        <div class="split">
+          <ul>
+            <li>LLM loader: run the model in a container.</li>
+            <li>Data loader: Brick, SQL, or a web page.</li>
+            <li>Query engine: ask domain questions.</li>
+            <li>Ship it as a chat app or a web service.</li>
+          </ul>
+          <figure class="figure">
+            <svg viewBox="0 0 480 320" role="img" aria-label="LlamaIndex sits in the center and connects the model, data, queries, and the app.">
+              <circle cx="240" cy="160" r="52" fill="#10243f" stroke="#e4a34b" stroke-width="2"/>
+              <text x="240" y="156" fill="#e4a34b" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Llama</text>
+              <text x="240" y="174" fill="#e4a34b" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Index</text>
+              <g fill="#10243f" stroke="#9aafc8" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14">
+                <rect x="170" y="16" width="140" height="40"/>
+                <rect x="16" y="140" width="110" height="40"/>
+                <rect x="354" y="140" width="110" height="40"/>
+                <rect x="170" y="256" width="140" height="40"/>
+              </g>
+              <g fill="none" stroke="#e4a34b" stroke-width="1.5">
+                <path d="M240 108 V56"/>
+                <path d="M188 160 H126"/>
+                <path d="M292 160 H354"/>
+                <path d="M240 212 V256"/>
+              </g>
+              <g fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14" text-anchor="middle">
+                <text x="240" y="42">LLM loader</text>
+                <text x="71" y="165">Data</text>
+                <text x="409" y="165">Query</text>
+                <text x="240" y="280">Chat app</text>
+              </g>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s6">
+        <div>
+          <p class="kicker">05 — Model</p>
+          <h2 id="s6" tabindex="-1">Zephyr-7B-beta</h2>
+        </div>
+        <div class="split even">
+          <ul>
+            <li>Released by Hugging Face in November 2023.</li>
+            <li>About 13 GB of RAM, a quarter of a 70B model.</li>
+            <li>Strong enough at reasoning and extraction to read a Brick model.</li>
+          </ul>
+          <figure class="figure">
+            <svg viewBox="0 0 460 240" role="img" aria-label="Zephyr 7B uses about 13 gigabytes. A 70B model uses about four times that.">
+              <rect x="20" y="48" width="90" height="120" fill="#e4a34b"/>
+              <rect x="150" y="48" width="270" height="120" fill="none" stroke="#9aafc8" stroke-dasharray="4 4"/>
+              <text x="65" y="114" fill="#1c1408" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">13 GB</text>
+              <text x="285" y="114" fill="#9aafc8" font-size="16" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">70B · about 4×</text>
+              <text x="65" y="196" fill="#e8eef7" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Zephyr</text>
+              <text x="285" y="196" fill="#9aafc8" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">Larger open models</text>
+            </svg>
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s7">
+        <div>
+          <p class="kicker">06 — Loaders</p>
+          <h2 id="s7" tabindex="-1">Plug in a model, then feed Brick</h2>
+        </div>
+        <figure class="figure">
+          <svg viewBox="0 0 980 250" role="img" aria-label="A GGUF model is tuned, connected through Llama Hub, then a custom pipeline writes Brick paragraphs into the LLM.">
+            <g fill="#10243f" stroke="#e4a34b" font-family="Avenir Next, Segoe UI, sans-serif" font-size="16">
+              <rect x="20" y="70" width="180" height="72"/>
+              <rect x="270" y="70" width="180" height="72"/>
+              <rect x="520" y="70" width="180" height="72"/>
+              <rect x="770" y="70" width="180" height="72"/>
+            </g>
+            <g fill="none" stroke="#e4a34b" stroke-width="1.5" marker-end="url(#arrow)">
+              <path d="M200 106 H270"/>
+              <path d="M450 106 H520"/>
+              <path d="M700 106 H770"/>
+            </g>
+            <g fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="16" text-anchor="middle">
+              <text x="110" y="102">GGUF model</text>
+              <text x="110" y="124">plug and play</text>
+              <text x="360" y="102">GPU, tokens,</text>
+              <text x="360" y="124">temperature</text>
+              <text x="610" y="102">Llama Hub</text>
+              <text x="610" y="124">PDF, SQL, mail</text>
+              <text x="860" y="102">Brick pipeline</text>
+              <text x="860" y="124">into the LLM</text>
+            </g>
+          </svg>
+        </figure>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s8">
+        <div>
+          <p class="kicker">07 — NebulaGraph</p>
+          <h2 id="s8" tabindex="-1">Store the ontology as a graph</h2>
+        </div>
+        <div class="split even">
+          <div>
+            <ul>
+              <li>Relationships are the point of a Brick model.</li>
+              <li>NebulaGraph keeps nodes and edges, not rows.</li>
+              <li>The model can use that structure without writing SPARQL.</li>
+            </ul>
+          </div>
+          <figure class="figure">
+            <svg viewBox="0 0 520 280" role="img" aria-label="Chiller 01 connects to a COP point and a temperature sensor. A small triple table sits beside the graph.">
+              <g stroke="#e4a34b" fill="#e4a34b">
+                <circle cx="120" cy="140" r="28" fill="#10243f" stroke-width="2"/>
+                <circle cx="280" cy="60" r="18" fill="#10243f"/>
+                <circle cx="300" cy="210" r="18" fill="#10243f"/>
+                <path d="M146 124 L262 72" fill="none"/>
+                <path d="M146 158 L282 198" fill="none"/>
+              </g>
+              <g fill="#e8eef7" font-family="Avenir Next, Segoe UI, sans-serif" font-size="13" text-anchor="middle">
+                <text x="120" y="144">Chiller</text>
+                <text x="280" y="64">COP</text>
+                <text x="300" y="214">Sensor</text>
+                <text x="200" y="86" fill="#e4a34b" font-size="12">point of</text>
+                <text x="230" y="190" fill="#e4a34b" font-size="12">has tag</text>
+              </g>
+              <g font-family="SF Mono, ui-monospace, monospace" font-size="11" fill="#9aafc8">
+                <rect x="360" y="70" width="146" height="140" fill="#10243f" stroke="#2a466c"/>
+                <text x="372" y="96">subject</text>
+                <text x="372" y="118">COP</text>
+                <text x="372" y="146">predicate</text>
+                <text x="372" y="168">is point of</text>
+                <text x="372" y="196">object: Chiller</text>
+              </g>
+            </svg>
+            <figcaption>Graph on the left. The same fact as a triple on the right.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s9">
+        <div>
+          <p class="kicker">08 — Query engines</p>
+          <h2 id="s9" tabindex="-1">Two ways to ask</h2>
+        </div>
+        <div class="pair">
+          <article class="panel">
+            <h2>Graph RAG</h2>
+            <figure class="figure">
+              <svg viewBox="0 0 420 120" role="img" aria-label="The model reads the paragraph, then checks the graph.">
+                <g fill="#071426" stroke="#e4a34b" font-family="Avenir Next, Segoe UI, sans-serif" font-size="14">
+                  <rect x="8" y="36" width="110" height="44"/>
+                  <rect x="156" y="36" width="90" height="44"/>
+                  <rect x="284" y="36" width="120" height="44"/>
+                </g>
+                <path d="M118 58 H156 M246 58 H284" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+                <g fill="#e8eef7" font-size="14" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">
+                  <text x="63" y="63">Paragraph</text>
+                  <text x="201" y="63">LLM</text>
+                  <text x="344" y="63">Check graph</text>
+                </g>
+              </svg>
+            </figure>
+            <p>Read the whole paragraph, then use the graph to check the answer.</p>
+          </article>
+          <article class="panel">
+            <h2>Graph + vector RAG</h2>
+            <figure class="figure">
+              <svg viewBox="0 0 420 140" role="img" aria-label="The paragraph is split into chunks. The model reads each chunk, then checks the graph.">
+                <g fill="#071426" stroke="#e4a34b">
+                  <rect x="8" y="16" width="70" height="28"/>
+                  <rect x="8" y="54" width="70" height="28"/>
+                  <rect x="8" y="92" width="70" height="28"/>
+                  <rect x="150" y="48" width="90" height="44"/>
+                  <rect x="290" y="48" width="118" height="44"/>
+                </g>
+                <path d="M78 30 H120 L150 60 M78 68 H150 M78 106 H120 L150 80 M240 70 H290" fill="none" stroke="#e4a34b" marker-end="url(#arrow)"/>
+                <g fill="#e8eef7" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">
+                  <text x="43" y="35">Chunk</text>
+                  <text x="43" y="73">Chunk</text>
+                  <text x="43" y="111">Chunk</text>
+                  <text x="195" y="75">LLM</text>
+                  <text x="349" y="75">Check graph</text>
+                </g>
+              </svg>
+            </figure>
+            <p>Split the text first so the model can focus, then check the graph.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s10">
+        <div>
+          <p class="kicker">09 — COP sensors</p>
+          <h2 id="s10" tabindex="-1">Same building, two engines</h2>
+        </div>
+        <div class="pair">
+          <article class="panel">
+            <p class="query">Graph + vector · “List all COP sensor timeseries ID in database.”</p>
+            <p class="answer mono">4132912_TLVL-RF-CHR-01-COP_TL Archive<br>4132912_TLVL-RF-CHR-02-COP_TL Archive<br>4132912_TLVL-RF-CHR-03-COP_TL Archive</p>
+          </article>
+          <article class="panel">
+            <p class="query">Graph RAG · “List COP in TLVL.”</p>
+            <figure class="figure">
+              <svg viewBox="0 0 420 150" role="img" aria-label="Three COP points belong to the TLVL equipment.">
+                <circle cx="70" cy="78" r="28" fill="#071426" stroke="#e4a34b" stroke-width="2"/>
+                <text x="70" y="82" fill="#e4a34b" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif" text-anchor="middle">TLVL</text>
+                <g fill="#071426" stroke="#9aafc8">
+                  <rect x="160" y="16" width="230" height="32"/>
+                  <rect x="160" y="60" width="230" height="32"/>
+                  <rect x="160" y="104" width="230" height="32"/>
+                </g>
+                <g fill="none" stroke="#e4a34b">
+                  <path d="M98 66 H160"/>
+                  <path d="M98 78 H160"/>
+                  <path d="M98 92 H160"/>
+                </g>
+                <g fill="#e8eef7" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif">
+                  <text x="172" y="37">TLVL-RF-ACC-01.COP</text>
+                  <text x="172" y="81">TLVL-RF-ACC-02.COP</text>
+                  <text x="172" y="125">TLVL-RF-ACC-03.COP</text>
+                </g>
+              </svg>
+            </figure>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s11">
+        <div>
+          <p class="kicker">10 — Chiller 01</p>
+          <h2 id="s11" tabindex="-1">Explain the point, then read the table</h2>
+        </div>
+        <div class="pair">
+          <article class="panel">
+            <p class="query">“Explain the chiller 01 COP in TLVL.”</p>
+            <p class="answer">COP is the point TLVL-RF-ACC-01.COP. The series is 4132912_TLVL-RF-CHR-01-COP_TL Archive. A higher COP means the chiller is more efficient. The same story can be read from return temperature TLVL-RF-ACC-01.RETTEMP.</p>
+          </article>
+          <article class="panel">
+            <p class="query">“List the latest row in 4132912_TLVL-RF-CHR-01-COP_TL, limit 1.”</p>
+            <figure class="figure">
+              <svg viewBox="0 0 420 150" role="img" aria-label="Latest row at 10 September 2023, 22:50, value 0.0.">
+                <rect x="8" y="16" width="400" height="118" fill="#071426" stroke="#2a466c"/>
+                <text x="24" y="48" fill="#9aafc8" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif">Timeseries</text>
+                <text x="200" y="48" fill="#9aafc8" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif">Data</text>
+                <line x1="16" y1="60" x2="396" y2="60" stroke="#2a466c"/>
+                <text x="24" y="96" fill="#e8eef7" font-size="15" font-family="Avenir Next, Segoe UI, sans-serif">2023-09-10 22:50:01</text>
+                <text x="300" y="96" fill="#e4a34b" font-size="22" font-family="Avenir Next, Segoe UI, sans-serif">0.0</text>
+              </svg>
+            </figure>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide" hidden aria-labelledby="s12">
+        <div>
+          <p class="kicker">11 — Where it stands</p>
+          <h2 id="s12" tabindex="-1">Limits now, and what 2024 might change</h2>
+        </div>
+        <div class="pair">
+          <article class="panel">
+            <h2>Limitation</h2>
+            <ul>
+              <li>Open models still trail OpenAI on large, complex queries.</li>
+              <li>Ontology and timeseries still need two engines. Nothing queries both at once.</li>
+            </ul>
+          </article>
+          <article class="panel">
+            <h2>Hope</h2>
+            <figure class="figure">
+              <svg viewBox="0 0 420 120" role="img" aria-label="Open models in early 2024, including Llama 3, aimed at closing the gap with larger commercial models.">
+                <path d="M24 88 C80 88 90 70 140 64 C200 56 210 40 270 36 C330 32 350 28 396 24" fill="none" stroke="#e4a34b" stroke-width="2"/>
+                <circle cx="140" cy="64" r="5" fill="#e4a34b"/>
+                <circle cx="270" cy="36" r="5" fill="#e4a34b"/>
+                <circle cx="396" cy="24" r="5" fill="#e4a34b"/>
+                <g fill="#e8eef7" font-size="13" font-family="Avenir Next, Segoe UI, sans-serif">
+                  <text x="110" y="108">Zephyr</text>
+                  <text x="246" y="78">Llama 3</text>
+                  <text x="340" y="64">2024</text>
+                </g>
+              </svg>
+            </figure>
+            <p>Meta’s Llama 3 and the open-source frameworks around it were the bet for a real step up in 2024.</p>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <footer class="nav">
+      <button class="back" type="button" id="prev">Back</button>
+      <p class="count" id="count" aria-live="polite">1 / 12</p>
+      <button class="next" type="button" id="next">Next</button>
+    </footer>
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const count = document.getElementById("count");
+    const next = document.getElementById("next");
+    const prev = document.getElementById("prev");
+    let index = 0;
+
+    function show(n) {
+      index = (n + slides.length) % slides.length;
+      slides.forEach((slide, i) => {
+        slide.hidden = i !== index;
+      });
+      count.textContent = (index + 1) + " / " + slides.length;
+      next.textContent = index === slides.length - 1 ? "Start over" : "Next";
+      history.replaceState(null, "", "#" + (index + 1));
+      const heading = slides[index].querySelector("h1, h2");
+      if (heading) heading.focus();
+    }
+
+    next.addEventListener("click", () => show(index + 1));
+    prev.addEventListener("click", () => show(index - 1));
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === " " || event.key === "PageDown") {
+        event.preventDefault();
+        show(index + 1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        show(index - 1);
+      } else if (event.key === "Home") {
+        show(0);
+      } else if (event.key === "End") {
+        show(slides.length - 1);
+      }
+    });
+
+    const start = Number(location.hash.replace("#", ""));
+    show(Number.isInteger(start) && start >= 1 && start <= slides.length ? start - 1 : 0);
+  </script>
+</body>
+</html>

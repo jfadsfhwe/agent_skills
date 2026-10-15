@@ -1,0 +1,3 @@
+interface:
+  display_name: "Web deck"
+  short_description: "HTML slides from provided content"
